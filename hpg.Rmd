@@ -1,0 +1,168 @@
+---
+title: "Tesis"
+author: "Daniela Ardila"
+date: "2025-11-29"
+output: html_document
+---
+
+```{r}
+# ─────────────────────────────
+# 0. Librerías
+# ─────────────────────────────
+library(tidyverse)
+
+# ─────────────────────────────
+# 1. Leer el TSV
+# ─────────────────────────────
+df <- read.delim(
+  "GO_protein.tsv",
+  sep = "\t",
+  header = TRUE,
+  check.names = FALSE   # mantiene el nombre "#OTU"
+)
+
+head(df)
+str(df)
+
+```
+```{r}
+short_total <- sum(df$short)
+long_total  <- sum(df$long)
+
+N <- short_total + long_total  # total de dominios
+K <- short_total               # éxitos en la población (short)
+
+```
+
+```{r}
+results <- df %>%
+  rowwise() %>%
+  mutate(
+    n = short + long,   # tamaño de la muestra (dominios en ese GO)
+    k = short,          # éxitos observados (short)
+
+    p_hyper = phyper(
+      q = k - 1,
+      m = K,            # éxitos en población (short_total)
+      n = N - K,        # fracasos en población (long_total)
+      k = n,
+      lower.tail = FALSE  # P(X ≥ k)
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(
+    p_adj = p.adjust(p_hyper, method = "BH")  # FDR Benjamini–Hochberg
+  ) %>%
+  arrange(p_adj)
+
+results
+
+```
+
+```{r}
+sig_GO <- results %>%
+  filter(p_adj < 0.05)
+
+sig_GO
+
+```
+
+```{r}
+library(tidyverse)
+
+df <- read.delim("GO_protein.tsv", sep = "\t", header = TRUE)
+
+total_short <- sum(df$short)
+total_long  <- sum(df$long)
+
+# Función Fisher para cada GO
+fisher_results <- df %>%
+  rowwise() %>%
+  mutate(
+    fisher_p = fisher.test(
+      matrix(
+        c(short,
+          long,
+          total_short - short,
+          total_long - long),
+        nrow = 2
+      )
+    )$p.value
+  ) %>%
+  ungroup() %>%
+  mutate(p_adj = p.adjust(fisher_p, method = "BH"))
+
+fisher_results
+
+```
+1. Volcano plot (log2 Fold Change vs –log10 p-value)
+```{r
+#install.packages("tidyverse")
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+
+ggplot(volcano, aes(x = logFC, 
+                    y = neglogP, 
+                    color = sig, 
+                    label = X.OTU)) +
+  geom_point(size = 3) +
+  geom_text_repel(max.overlaps = 20, size = 3) +
+  scale_color_manual(values = c("grey40", "red")) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Volcano plot – GO terms",
+    x = "log2 Fold Change (long / short)",
+    y = "-log10(p-value)",
+    color = "Significativo"
+  )
+
+
+```
+2. Barra comparativa short vs long por GO
+```{r}
+library(tidyverse)
+
+bar_df <- fisher_results %>%
+  pivot_longer(cols = c(short, long), 
+               names_to = "group",
+               values_to = "count")
+
+ggplot(bar_df, aes(x = reorder(X.OTU, count), y = count, fill = group)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Comparación de abundancia por GO (short vs long)",
+    x = "GO term",
+    y = "Conteo"
+  ) +
+  scale_fill_manual(values = c("short" = "#1F77B4", "long" = "#FF7F0E"))
+
+```
+3. Bubble-plot de enriquecimiento
+```{r}
+bubble <- fisher_results %>%
+  mutate(
+    logFC = log2((long + 1)/(short + 1)),
+    size = long + short
+  )
+
+ggplot(bubble, aes(x = logFC, y = reorder(X.OTU, logFC),
+                   size = size, color = -log10(fisher_p))) +
+  geom_point(alpha = 0.7) +
+  scale_color_viridis_c() +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Bubble plot – GO terms",
+    x = "log2 Fold Change (long / short)",
+    y = "GO term",
+    color = "-log10(p-value)",
+    size = "Frecuencia total"
+  )
+
+```
+
+
+
+
